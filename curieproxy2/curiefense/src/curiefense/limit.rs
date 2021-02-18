@@ -39,9 +39,8 @@ fn is_banned(cnx: &mut redis::Connection, key: &str) -> bool {
 fn limit_react(cnx: &mut redis::Connection, limit: &Limit, key: String) -> Decision {
     if limit.action.ban {
         let ban_key = get_ban_key(&key);
-        match redis::cmd("SET").arg(ban_key).arg(1).query(cnx) {
-            Err(rr) => println!("*** Redis error {}", rr),
-            Ok(()) => (),
+        if let Err(rr) = redis::cmd("SET").arg(ban_key).arg(1).query::<()>(cnx) {
+            println!("*** Redis error {}", rr);
         }
     }
     Decision::Action(limit.action.clone())

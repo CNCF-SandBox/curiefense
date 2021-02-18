@@ -46,6 +46,8 @@ impl Limit {
     fn convert(rawlimit: RawLimit) -> anyhow::Result<(String, Limit)> {
         let mkey: anyhow::Result<Vec<RequestSelector>> =
             rawlimit.key.into_iter().map(resolve_selector_map).collect();
+        let key = mkey.with_context(|| "when converting the key entry")?;
+        let pairwith = resolve_selector_map(rawlimit.pairwith).ok();
         Ok((
             rawlimit.id.clone(),
             Limit {
@@ -65,8 +67,8 @@ impl Limit {
                     .with_context(|| "when resolving the exclude entry")?,
                 include: resolve_selectors(rawlimit.include)
                     .with_context(|| "when resolving the include entry")?,
-                pairwith: resolve_selector_map(rawlimit.pairwith).ok(),
-                key: mkey.with_context(|| "when converting the key entry")?,
+                pairwith,
+                key
             },
         ))
     }
