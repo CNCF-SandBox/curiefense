@@ -1,76 +1,57 @@
+# Current status
 
+An initial implementation of all filtering components had been written.
 
-# questions for later
+## Missing features
 
-## matching on the uri
+ * logging
+ * request body parsing
 
-The lua code does this (summarized):
+## Things to fix
 
-```lua
-local _uri = urldecode(map.attrs.path)
-if _uri:find("?") then
-    local path, query = unpack(_uri:split("?", 1))
-    map.attrs.path = path
-```
+ * pervasive testing, making sure the behaviour is in line with what is expected
+ * implement asynchronous methods so as not to block envoy
+ * more sharing, less copying of the configuration
+ * code structure / refactorings / etc.
 
-This is the path that is used to match urlmaps. Is that not surprising to match on `url_decoded` strings?
-
-## exact matches in tag profiler
-
-Is it expected that exact match works?
+## Sample lua filter
 
 ```lua
-function match_singles(request_map, list_entry)
-  for entry_key, list_entries in pairs(list_entry) do
-    -- exact request map
-    local entry_match = list_entries[request_map[entry_key]]
-    request_map.handle:logInfo(string.format("match_singles:: Exact Match? %s %s %s %s", entry_match, entry_key, request_map[entry_key], cjson.encode(list_entries)))
-    if entry_match then
-      -- request_map.handle:logDebug(string.format("match_singles:: Exact Match! %s %s %s", entry_match, entry_key, request_map[entry_key]))
-      return entry_match
+module(..., package.seeall)
+
+local native      = require "curiedefense"
+local cjson       = require "cjson"
+local grasshopper = require "grasshopper"
+
+function inspect(handle)
+
+    local headerm = {}
+    for k, v in pairs(handle:headers()) do
+        headerm[k] = v
     end
-    -- exact request map's attr
-    entry_match = list_entries[request_map.attrs[entry_key]]
-    if entry_match then
-      -- request_map.handle:logDebug(string.format("match_singles:: ATTR Match! %s %s %s", entry_match, entry_key, request_map.attrs[entry_key]))
-      return entry_match
+    local metam = {}
+    for k, v in pairs(handle:metadata()) do
+        metam[k] = v
     end
 
-    -- pattern matching for all but ip or ASN.
-    if entry_key ~= 'ip' and entry_key ~= 'asn' then
-      for pattern, annotation in pairs(list_entries) do
-        local value = request_map.attrs[entry_key]
-        if value then
-          local val_patt_match = re_match(value, pattern)
-          -- request_map.handle:logDebug(string.format("match_singles:: %s matched? %s >>  - regex %s %s", entry_key, val_patt_match, value, pattern))
-          if val_patt_match then
-            return annotation
-          end
+    res = native.inspect(headerm, metam, grasshopper)
+    handle:logInfo(string.format("res:pass() %s", res:pass()))
+    if res and res:pass() == false then
+        handle:logInfo(string.format("res atype %s", cjson.encode(res:atype())))
+        handle:logInfo(string.format("res ban %s", cjson.encode(res:ban())))
+        handle:logInfo(string.format("res reason %s", res:reason()))
+        local action_params = {
+            ["reason"] = res:reason(),
+            ["block_mode"] = true
+        }
+        local headers = res:headers()
+        if headers == nil then
+            headers = { ["x-curiefense"] = "response" }
         end
-      end
+        headers[":status"] = res:status()
+        handle:respond(headers, res:content())
+    else
+        return
     end
-  end
-  -- no match
-  return false
 end
 ```
-
-# differences in behaviour
-
-## content of attrs
-
- * envoy metadata is currently not mapped into attrs
-
-## Resolving the host
-The Lua code retrieves the queried host this way:
-
-```lua
-local host = request_map.headers.host or request_map.attrs.authority
-```
-
-The Rust code only trusts the `:authority` metadata provided by Envoy.
-
-## tagging regexps
-
-Tagging support regexp and exact match for single and pair entries.
-The Lua version will fail on invalid regexps, but the Rust version does not and still allows for exact matching with things that are invalid regexes.
